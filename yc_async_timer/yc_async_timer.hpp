@@ -1,84 +1,113 @@
 #pragma once
 #include <chrono>
-#include <future>
-#include <iostream>
-#include <thread>
+#include <condition_variable>
+#include <cstdio>
+#include <stdexcept>
+#include <coroutine>
 #include <functional>
+#include <future>
+#include <mutex>
+#include <queue>
+#include <thread>
 #include <vector>
-#include <chrono>
-#include <ranges>
+#include <atomic>
+#include <concurrent_unordered_map.h>
 
-using namespace std::chrono;
-namespace yc_timer {
+using namespace std;
 
-	static std::thread* timers = nullptr;
-	static bool stop = false;
 
-	std::promise<void> stop_p;
+struct job_info_t
+{
+	float t;
+	float dt = 0.f;
+	std::chrono::system_clock::time_point start_t;
+	std::function<void()> f;
+	bool active = true;
+};
 
-	void shutdown_timer() {
-		std::shared_future<void> stop_f = stop_p.get_future();
-		stop = true;
-		stop_f.get();
-		if (timers->joinable())
+static concurrency::concurrent_unordered_map <size_t, job_info_t> jobs;
+static std::atomic_int64_t offset = 0;
+
+static std::thread timer_thread = std::thread([] {
+	while (true) {
+		static std::chrono::system_clock::time_point* lastT = nullptr;
+		if (lastT == nullptr)
 		{
-			timers->join();
+			lastT = new std::chrono::system_clock::time_point;
+			*lastT = std::chrono::system_clock::now();
 		}
-	}
-
-	struct timer_t
-	{
-		size_t id;
-		float t;
-		float dt;
-		std::function<void()> f;
-		bool active = true;
-	};
-	static std::vector<timer_t> used_timer;
-	std::thread& loop() {
-		if (!timers) {
-			timers = new std::thread([] {
-				while (!stop) {
-					static system_clock::time_point* lastT = new std::chrono::system_clock::time_point;
-					static bool frs = true;
-					if (frs) {
-						*lastT = std::chrono::system_clock::now();
-						std::this_thread::sleep_for(std::chrono::microseconds(10));
-						frs = false;
+		else {
+			auto this_t = std::chrono::system_clock::now();
+			for (auto& i : jobs) {
+				if (i.second.active) {
+					if(i.second.dt == 0.f) 
+						i.second.dt = ((std::chrono::duration<float>)(this_t - i.second.start_t)).count();
+					else {
+						i.second.dt += ((std::chrono::duration<float>)(this_t - *lastT)).count();
 					}
-					auto dt = ((std::chrono::duration<float>)(std::chrono::system_clock::now() - *lastT)).count();
-					*lastT = std::chrono::system_clock::now();
-
-					for (auto& i : used_timer)
-					{
-						i.dt += dt;
+					if (i.second.dt >= i.second.t) {
+						i.second.f();
 					}
-
-					for (auto& i : used_timer | std::views::filter([](auto& i) { return i.active; })
-											  | std::views::filter([](auto& i) { return i.dt >= i.t; }))
-					{
-						i.f();
-						i.active = false;
-					}
-					std::this_thread::sleep_for(std::chrono::microseconds(1));
 				}
-				stop_p.set_value();
-			});
+			}
 		}
-		return *timers;
+		*lastT = std::chrono::system_clock::now();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
+});
 
-	template <typename F>
-	void timer_event(F&& f, float t_sec) {
-		for (auto& i : used_timer | std::views::filter([](auto& i) { return !i.active; }))
-		{
-			i.t = t_sec;
-			i.dt = 0;
-			i.f = f;
-			i.active = true;
-			return;
+struct task {
+
+	struct promise_type {
+		task get_return_object() {
+			return task{
+				nullptr,
+				0.f,
+				(std::function<void()>&)[] {}
+			};
 		}
-		used_timer.push_back(timer_t { used_timer.size(), t_sec, 0, f, true });
-		loop();
+		std::suspend_never initial_suspend() { return {}; }
+		std::suspend_never final_suspend() noexcept { return {}; }
+		void return_void() {}
+		void unhandled_exception() {}
+	};
+
+	bool await_ready() { return false; }
+	void await_suspend(std::coroutine_handle<> h) {
+		//printf("%lld,", offset.load());
+		size_t idx = -1;
+		for (auto& i : jobs) {
+			if (!i.second.active) idx = i.first;
+		}
+		idx = idx == -1 ? offset++ : idx;
+		jobs[idx] = job_info_t{
+			.t = _ms,
+			.dt = 0.f,
+			.start_t = std::chrono::system_clock::now(),
+			.f = [func = &_func, p = _p, idx, h] { 
+				jobs[idx].active = false; 
+				p->set_value(*func);
+				h.resume();
+			},
+			.active = true
+		};
+	}
+	void await_resume() {}
+	std::promise<std::function<void()>>* _p = nullptr;
+	float _ms = 0.f;
+	std::function<void()>& _func;
+	task(
+		std::promise<std::function<void()>>* p, 
+		float ms, 
+		std::function<void()>& func
+		) : _p(p), _ms(ms), _func(func){ }
+};
+
+task async_timer(float n, std::function<void()> f) {
+	std::promise<std::function<void()>> f_;
+	auto ftr = f_.get_future();
+	co_await task(&f_, n, f);
+	if (ftr._Is_ready()) {
+		ftr.get()();
 	}
 }

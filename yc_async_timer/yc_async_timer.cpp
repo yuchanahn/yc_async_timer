@@ -1,46 +1,29 @@
-#include <iostream>
-
 #include "yc_async_timer.hpp"
 
+#include <stdio.h>
+#include <time.h>
+#include <iostream>
 
-#include <iostream> 
-#include <future> 
-#include <functional>
-#include <thread>
-#include <coroutine>
-#include <chrono>
+int main() {
+	using namespace std;
 
-using namespace std;
+	cout << "Start" << endl;
+	bool stop = false;
 
-
-future<void> async_timer(float n, std::function<void()> f) {
-	float dt = 0;
-	while (true)
+	for (int i = 1; i < 1000; i++)
 	{
-		int ms = (n * 1000.f);
-		bool flg = false;
-		co_await std::async([&] { 
-			std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-			flg = true;
+		async_timer(i * 0.1f, [&, i] {
+			cout << endl << i * 0.1f <<" sec over";
+			if (i == 99) stop = true;
 		});
-		
-		if (flg)
-		{
-			break;
-		}
 	}
-	co_return f();
-} 
 
+	cout << "timer set!" << endl;
 
-int main() { 
-	cout << "Start" << endl; 
-	auto f = async_timer(25.f, [] { printf("25ÃÊ Áö³²\n"); });
-	while (!f._Is_ready()) { 
+	while (!stop) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-		cout << "Main!" << endl; 
-	} 
-	cout << endl; 
-	return 0; 
-}
+	}
 
+	cout << endl;
+	return 0;
+}

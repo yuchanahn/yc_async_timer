@@ -1,5 +1,3 @@
 ﻿  yc_async_timer.cpp
-  The contents of <coroutine> are not available with /await.
-  Remove /await for standard coroutines or use <experimental/coroutine> for legacy /await support.
-C:\Users\anyc1\Documents\GitHub\yc_async_timer\yc_async_timer\yc_async_timer.cpp(20,10): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\anyc1\Documents\GitHub\yc_async_timer\yc_async_timer\yc_async_timer.cpp(15,15): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
   yc_async_timer.vcxproj -> C:\Users\anyc1\Documents\GitHub\yc_async_timer\x64\Debug\yc_async_timer.exe
